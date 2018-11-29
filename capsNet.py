@@ -5,6 +5,17 @@ import tensorflow as tf
 import matplotlib.pyplot as plt 
 from tensorflow.examples.tutorials.mnist import input_data
 
+# Shutting up the warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+tf.logging.set_verbosity(tf.logging.ERROR)
+
+# Getting input data from MNIST
+mnist = input_data.read_data_sets("/tmp/data/")
+print("MNIST data extracted.")
+
+n_epochs = 10
+checkpoint_path = "./my_capsule_network"
+
 ''' Parameters '''
 ### PrimaryCaps
 # No.of maps in PrimaryCaps
@@ -104,7 +115,7 @@ def reconstruct(y, y_prediction, DCaps_output):
     print("Shape of reconstructed output: \t \t \t: ", DCaps_output_reconstructed)
 
     # Flattening the entire reconstructed DCaps_output
-    return tf.reshape(DCaps_output_reconstructed, [-1, DCaps_capsules*DCaps_dims])
+    return tf.reshape(DCaps_output_reconstructed, [-1, DCaps_capsules*DCaps_dims]), label_mask
     
 
 def marginLoss(DCaps_output):    
@@ -179,25 +190,129 @@ def digitCaps():
     PCaps_output_tiled = tf.tile(PCaps_output_tile, 
         [1, 1, DCaps_capsules, 1, 1])
     return tf.matmul(W_tiled, PCaps_output_tiled), batch_size
+def training(train_optimize, total_loss, label_mask):
+    batch_size = 50
+    restore_checkpoint = True
+
+    n_iterations_per_epoch = mnist.train.num_examples // batch_size
+    n_iterations_validation = mnist.validation.num_examples // batch_size
+    best_loss_val = np.infty
+    
+
+    with tf.Session() as sess:
+        if restore_checkpoint and tf.train.checkpoint_exists(checkpoint_path):
+            saver.restore(sess, checkpoint_path)
+        else:
+            init.run()
+
+        for epoch in range(n_epochs):
+            for iteration in range(1, n_iterations_per_epoch + 1):
+                x_batch, y_batch = mnist.train.next_batch(batch_size)
+                # Run the training operation and measure the loss:
+                _, loss_train = sess.run(
+                    [train_optimize, total_loss],
+                    feed_dict={x: x_batch.reshape([-1, 28, 28, 1]),
+                            y: y_batch,
+                            label_mask: True})
+                print("\rIteration: {}/{} ({:.1f}%)  Loss: {:.5f}".format(
+                        iteration, n_iterations_per_epoch,
+                        iteration * 100 / n_iterations_per_epoch,
+                        loss_train),
+                    end="")
+
+            # At the end of each epoch,
+            # measure the validation loss and accuracy:
+            loss_vals = []
+            acc_vals = []
+            for iteration in range(1, n_iterations_validation + 1):
+                X_batch, y_batch = mnist.validation.next_batch(batch_size)
+                loss_val, acc_val = sess.run(
+                        [loss, accuracy],
+                        feed_dict={X: X_batch.reshape([-1, 28, 28, 1]),
+                                y: y_batch})
+                loss_vals.append(loss_val)
+                acc_vals.append(acc_val)
+                print("\rEvaluating the model: {}/{} ({:.1f}%)".format(
+                        iteration, n_iterations_validation,
+                        iteration * 100 / n_iterations_validation),
+                    end=" " * 10)
+            loss_val = np.mean(loss_vals)
+            acc_val = np.mean(acc_vals)
+            print("\rEpoch: {}  Val accuracy: {:.4f}%  Loss: {:.6f}{}".format(
+                epoch + 1, acc_val * 100, loss_val,
+                " (improved)" if loss_val < best_loss_val else ""))
+
+            # And save the model if it improved:
+            if loss_val < best_loss_val:
+                save_path = saver.save(sess, checkpoint_path)
+                best_loss_val = loss_val
+def evaluate(total_loss):
+    batch_size = 50
+    n_iterations_test = mnist.test.num_examples // batch_size
+
+    with tf.Session() as sess:
+        saver.restore(sess, checkpoint_path)
+
+        loss_tests = []
+        acc_tests = []
+        for iteration in range(1, n_iterations_test + 1):
+            x_batch, y_batch = mnist.test.next_batch(batch_size)
+            loss_test, acc_test = sess.run(
+                    [total_loss, accuracy],
+                    feed_dict={X: X_batch.reshape([-1, 28, 28, 1]),
+                            y: y_batch})
+            loss_tests.append(loss_test)
+            acc_tests.append(acc_test)
+            print("\rEvaluating the model: {}/{} ({:.1f}%)".format(
+                    iteration, n_iterations_test,
+                    iteration * 100 / n_iterations_test),
+                end=" " * 10)
+        loss_test = np.mean(loss_tests)
+        acc_test = np.mean(acc_tests)
+        print("\rFinal test accuracy: {:.4f}%  Loss: {:.6f}".format(
+            acc_test * 100, loss_test))
+
+def predict():
+    n_samples = 5
+
+    sample_images = mnist.test.images[:n_samples].reshape([-1, 28, 28, 1])
+
+    with tf.Session() as sess:
+        saver.restore(sess, checkpoint_path)
+        caps2_output_value, decoder_output_value, y_pred_value = sess.run(
+                [caps2_output, decoder_output, y_pred],
+                feed_dict={X: sample_images,
+                        y: np.array([], dtype=np.int64)})
+
+    sample_images = sample_images.reshape(-1, 28, 28)
+    reconstructions = decoder_output_value.reshape([-1, 28, 28])
+
+    plt.figure(figsize=(n_samples * 2, 3))
+    for index in range(n_samples):
+        plt.subplot(1, n_samples, index + 1)
+        plt.imshow(sample_images[index], cmap="binary")
+        plt.title("Label:" + str(mnist.test.labels[index]))
+        plt.axis("off")
+
+    plt.show()
+
+    plt.figure(figsize=(n_samples * 2, 3))
+    for index in range(n_samples):
+        plt.subplot(1, n_samples, index + 1)
+        plt.title("Predicted:" + str(y_pred_value[index]))
+        plt.imshow(reconstructions[index], cmap="binary")
+        plt.axis("off")
+        
+    plt.show()
 
 if __name__ == '__main__':
-    # Shutting up the warnings
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-    tf.logging.set_verbosity(tf.logging.ERROR)
-
-    # Getting input data from MNIST
-    mnist = input_data.read_data_sets("/tmp/data/")
-    print("MNIST data extracted.")
 
     # 28x28 images with 1 channel
     x = tf.placeholder(shape=[None, 28, 28, 1], dtype=tf.float32)
     y = tf.placeholder(shape=[None], dtype=tf.int64)
-
     # todo: Test model with 3 channel image dataset
     # 28x28 images with 3 channels
     # x = tf.placeholder(shape=[None, 28, 28, 3], dtype=tf.float32, name="X")
-
-
 
     ''' Convolution Layer '''
     # Defining Convolution Layer
@@ -248,7 +363,7 @@ if __name__ == '__main__':
         
     ''' Decoder Layer '''
     # Decoder or Final output layer
-    decoder_input = reconstruct(y, y_prediction, DCaps_output)
+    decoder_input, label_mask = reconstruct(y, y_prediction, DCaps_output)
     # print("Shape of Reconstructed Dcaps output: \t \t: ", decoder_input)
    
     # 2 Fully connected layers with ReLU
@@ -272,4 +387,15 @@ if __name__ == '__main__':
     total_loss = tf.add(margin_loss, recon_loss)
 
     # todo: Training and Evaluation
-    
+    correct = tf.equal(y, y_prediction)
+    accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
+
+    optimizer = tf.train.AdamOptimizer()
+    train_optimize = optimizer.minimize(total_loss)
+
+    init = tf.global_variables_initializer()
+    saver = tf.train.Saver()
+
+    training(train_optimize, total_loss, label_mask)
+    evaluate(total_loss)
+    predict()
