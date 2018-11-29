@@ -250,7 +250,7 @@ def training(train_optimize, total_loss, label_mask, accuracy):
             if loss_val < best_loss_val:
                 save_path = saver.save(sess, checkpoint_path)
                 best_loss_val = loss_val
-            print("Epoch ", epoch, " took ", epoch_time-time.time(), "s" )
+            print("Epoch ", epoch, " took ", time.time()-epoch_time, "s" )
 
 def evaluate(total_loss, accuracy):
     batch_size = 50
@@ -413,4 +413,5 @@ if __name__ == '__main__':
     prediction_time = time.time()
     predict(DCaps_output, fc3, y_prediciton)
     print("prediction took a total of :", time.time()-prediction_time(), "s.")
-    
+
+    print("The total time taken is ", time.time()-start_time, "s.")    
