@@ -14,7 +14,7 @@ mnist = input_data.read_data_sets("/tmp/data/")
 print("MNIST data extracted.")
 
 # 28x28 images with 1 channel
-X = tf.placeholder(shape=[None, 28, 28, 1], dtype=tf.float32)
+x = tf.placeholder(shape=[None, 28, 28, 1], dtype=tf.float32)
 
 # todo: Test model with 3 channel image dataset
 # 28x28 images with 3 channels
@@ -40,16 +40,18 @@ DCaps_dims = 16
 ### Decoder
 fc1_dim = 512
 fc2_dim = 1024
-recon_output = 28*28
+output_dim = 784
 
 # Margin Loss
 mplus = 0.9
 mminus= 0.1
 ml_lambda = 0.5
+scale_down_factor = 0.0005
+    # To let Margin loss dominate training
 
 ''' Convolution Layer '''
 # Defining Convolution Layer
-conv = tf.layers.conv2d(X, 
+conv = tf.layers.conv2d(x, 
     filters=256,
     kernel_size=9,
     strides=1,
@@ -98,7 +100,7 @@ W = tf.Variable(W_initial)
 # we need two arrays.
 # First. Repeat W once per every instance
     # on batch_size
-batch_size = tf.shape(X)[0]
+batch_size = tf.shape(x)[0]
 W_tiled = tf.tile(W, [batch_size, 1, 1, 1, 1])
 
 # Second. array of shape [batch_size, 1152, 10, 8,1]
@@ -173,11 +175,11 @@ v_2 = squash(s_2, axis=-2)
 DCaps_output = v_2
 print("Shape of output of DigitCaps :\t \t \t: ", DCaps_output)
 
-# Safe Norm to compute y probabilities
-def norm(s, axis=-1, keep_dims=False):
+# Safe(?) Norm to compute y probabilities
+def norm(s, axis=-1, keepdims=False):
     with tf.name_scope("safe_norm", default_name="safe_norm"):
         squared_norm = tf.reduce_sum(tf.square(s), axis=axis, 
-            keep_dims=keep_dims)
+            keepdims=keepdims)
         return tf.sqrt(squared_norm) # Add epsilon
 
 # Getting y probabilities by applyng safe norm on second last data. 
@@ -191,30 +193,79 @@ print("Shape of highest probability vector is: \t: ", y_max)
 y_prediction = tf.squeeze(y_max, axis=[1, 2])
 print("Shape of prediction vector y is: \t \t: ", y_prediction)
 
-# Margin Loss 
+''' Margin Loss ''' 
 # L_k = T_k max(0, m+ - \\v_k\\)^2 + lambda(1-T_k) max(0, \\v_k\\)
-Tk = tf.one_hot(y, depth=)
+Tk = tf.one_hot(y, depth=DCaps_capsules)
+print("Shape of output of DigitCaps :\t \t \t: ", DCaps_output)
+# 16d output is in second last dimension
+DCaps_output_norm = norm(DCaps_output, axis=-2, keepdims=True)
+# First term of margin loss
+first_term = tf.square(tf.maximum(0., mplus - DCaps_output_norm))
+first_term = tf.reshape(first_term, shape=(-1, 10))
+# Second term of margin loss
+second_term = tf.square(tf.maximum(0., DCaps_output_norm - mminus))
+second_term = tf.reshape(second_term, shape=(-1, 10))
+# Final Margin Loss
+L = tf.add(Tk * first_term, ml_lambda * (1.0 - Tk) * second_term)
+# reducing mean
+margin_loss = tf.reduce_mean(tf.reduce_sum(L, axis=1))
+print("Shape of margin loss is: \t \t \t: ", margin_loss)
 
-# todo: Reconstruction 
+''' Reconstruction '''
+# Masking everything except 
+# output vector of capsule for 
+    # corresponding target class
+# Creating the mask for labels 
+label_mask = tf.placeholder_with_default(False, shape=())
+# Applying mask for false and leaving out for true (target class)
+recon_targets = tf.cond(label_mask, lambda: y,      # just y ?
+    lambda: y_prediction)                           # just y_prediction ?
+# Preparing the mask by one-hot and reshaping to fit the DCaps_output
+recon_mask = tf.one_hot(recon_targets, depth=DCaps_capsules)
+recon_mask_reshaped = tf.reshape(recon_mask, [-1, 1, DCaps_capsules, 1, 1])
+
+# Masking the capsule outputs except for corresponding classes
+DCaps_output_reconstructed = tf.multiply(DCaps_output, recon_mask_reshaped)
+print("Shape of reconstructed output: \t \t \t: ", DCaps_output_reconstructed)
+
+# Flattening the entire reconstructed DCaps_output
+DCaps_output_reconstructed_flat = tf.reshape(DCaps_output_reconstructed, [-1, DCaps_capsules*DCaps_dims])
+print("Shape of Reconstructed Dcaps output: \t \t: ", DCaps_output_reconstructed_flat)
 
 ''' Decoder '''
-'''
-with tf.name_scope("decoder"):
-    fc1 = tf.layers.dense(decoder_input, 
-        fc1_dim,
-        activation=tf.nn.relu,
-        name="fc1")
+# Decoder or Final output layer
 
-    fc2 = tf.layers.dense(fc1,
-        fc2_dim,
-        activation=tf.nn.relu,
-        name="fc2")
-    
-    decoder_output = tf.layers.dense(fc2, 
-        recon_output,
-        activation=tf.nn.sigmoid,
-        name="decoder_output")
-'''
+# Decoder_input = reconstruct(y, y_pred)
+
+# 2 Fully connected layers with ReLU
+fc1 = tf.layers.dense(DCaps_output_reconstructed_flat, 
+    fc1_dim, 
+    activation=tf.nn.relu)
+fc2 = tf.layers.dense(fc1, 
+    fc2_dim,
+    activation=tf.nn.relu)
+
+# 1 Fully connected layer with output Sigmoid
+fc3 = tf.layers.dense(fc2, output_dim,
+    activation=tf.nn.sigmoid)
+
+''' Reconstruction Loss '''
+x_flat = tf.reshape(x, [-1, recon_output])
+# Mean of square of difference
+recon_loss = tf.reduce_mean(
+    tf.square(
+        x_flat - fc3 # fc3 = output of decoder
+    )
+)
+
+''' Total Loss '''
+# Total loss = Margin loss + sdf * recon loss
+# "We scale down this reconstruction loss 
+    #  so margin loss dominates during training."
+    # Page 4, last paragraph
+total_loss = tf.add(margin_loss + scale_down_factor * recon_loss)
+
+
 
 # todo: Loss    
     # todo: Margin Loss
