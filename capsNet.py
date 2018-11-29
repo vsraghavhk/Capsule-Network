@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 from tensorflow.examples.tutorials.mnist import input_data
 
 start_time = time.time()
-sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
 # Shutting up the warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 tf.logging.set_verbosity(tf.logging.ERROR)
@@ -16,7 +15,7 @@ tf.logging.set_verbosity(tf.logging.ERROR)
 mnist = input_data.read_data_sets("/tmp/data/")
 print("MNIST data extracted.")
 
-n_epochs = 10
+n_epochs = 50
 checkpoint_path = "./my_capsule_network"
 
 ''' Parameters '''
@@ -218,12 +217,14 @@ def training(train_optimize, total_loss, label_mask, accuracy):
                     [train_optimize, total_loss],
                     feed_dict={x: x_batch.reshape([-1, 28, 28, 1]),
                             y: y_batch,
-                            label_mask: True})
+                            label_mask: True})  
                 print("\rIteration: {}/{} ({:.1f}%)  Loss: {:.5f}".format(
                         iteration, n_iterations_per_epoch,
                         iteration * 100 / n_iterations_per_epoch,
                         loss_train),
                     end="")
+            
+            print("Epoch ", epoch+1, " took ", time.time()-epoch_time, "s" )
 
             # At the end of each epoch,
             # measure the validation loss and accuracy:
@@ -250,8 +251,7 @@ def training(train_optimize, total_loss, label_mask, accuracy):
             if loss_val < best_loss_val:
                 save_path = saver.save(sess, checkpoint_path)
                 best_loss_val = loss_val
-            print("Epoch ", epoch, " took ", time.time()-epoch_time, "s" )
-
+            
 def evaluate(total_loss, accuracy):
     batch_size = 50
     n_iterations_test = mnist.test.num_examples // batch_size
@@ -404,14 +404,14 @@ if __name__ == '__main__':
 
     train_start = time.time()
     training(train_optimize, total_loss, label_mask, accuracy)
-    print("Training took a total of :", time.time()-train_start(), "s.")
+    print("Training took a total of :", time.time()-train_start, "s.")
     
     eval_time = time.time()
     evaluate(total_loss, accuracy)
-    print("Evaluation took a total of :", time.time()-eval_time(), "s.")
+    print("Evaluation took a total of :", time.time()-eval_time, "s.")
     
     prediction_time = time.time()
     predict(DCaps_output, fc3, y_prediciton)
-    print("prediction took a total of :", time.time()-prediction_time(), "s.")
+    print("prediction took a total of :", time.time()-prediction_time, "s.")
 
     print("The total time taken is ", time.time()-start_time, "s.")    
