@@ -52,25 +52,44 @@ ml_lambda = 0.5
 scale_down_factor = 0.0005
     # To let Margin loss dominate training
 
+conv_params = {
+    "filters": 256,
+    "kernel_size": 9,
+    "strides": 1,
+    "padding": "valid",
+    "activation": tf.nn.relu,
+}
+
+PCaps_params = {
+    "filters": PCaps_maps * PCaps_dims, # 256 convolutional filters
+    "kernel_size": 9,
+    "strides": 2,
+    "padding": "valid",
+    "activation": tf.nn.relu
+}
 ''' Convolution Layer '''
 # Defining Convolution Layer
-conv = tf.layers.conv2d(x, 
+conv = tf.layers.conv2d(x, **conv_params) 
+"""
     filters=256,
     kernel_size=9,
     strides=1,
     padding="valid",
     activation=tf.nn.relu 
 )
+"""
 
 ''' Primary Capsules '''
 # Defining PrimaryCaps Layer
-PCaps = tf.layers.conv2d(conv, 
-    filters=PCaps_capsules * PCaps_dims, # 9,216
+PCaps = tf.layers.conv2d(conv, **PCaps_params)
+"""
+    filters=PCaps_maps * PCaps_dims, # 9,216
     kernel_size=9,
     strides=2,
     padding="valid",
     activation=tf.nn.relu
 )
+"""
 
 # Reshaping output from layer to get 8D vectors
 PCaps_raw = tf.reshape(PCaps, [-1, PCaps_capsules, PCaps_dims])
@@ -81,7 +100,7 @@ PCaps_raw = tf.reshape(PCaps, [-1, PCaps_capsules, PCaps_dims])
 def squash(s, axis=-1, epsilon=1e-7):
     norm_squared = tf.reduce_sum(tf.square(s), axis=axis, keepdims=True)
     safe_norm = tf.sqrt(norm_squared + epsilon)
-    result = norm_squared/(1.+norm_squared) * s/safe_norm
+    result = norm_squared/(1. + norm_squared) * s/safe_norm
     return result
 
 # Squashing output of PrimaryCaps
@@ -92,19 +111,20 @@ print("Shape of Squashed output :\t \t \t: ", PCaps_output)
 ''' Digit Capsules ''' 
 # For predicted output vectors
     # Standard Deviation for W initialisation
-stddev = 0.1
+init_sigma = 0.1
 # Trainable Weight with shape [1, 1152, 10, 16, 8]
 W_initial = tf.random_normal(
     shape=(1, PCaps_capsules, DCaps_capsules, DCaps_dims, PCaps_dims),
-    stddev=stddev,
-    dtype=tf.float32,
-)
+    stddev=init_sigma  ,
+    dtype=tf.float32)
+
 W = tf.Variable(W_initial)
 
 # we need two arrays.
 # First. Repeat W once per every instance
     # on batch_size
 batch_size = tf.shape(x)[0]
+print("batch size = ", x[0])
 W_tiled = tf.tile(W, [batch_size, 1, 1, 1, 1])
 
 # Second. array of shape [batch_size, 1152, 10, 8,1]
@@ -179,7 +199,7 @@ print("Shape of output of DigitCaps :\t \t \t: ", DCaps_output)
 # Safe(?) Norm to compute y probabilities
 def norm(s, epsilon=1e-7, axis=-1, keepdims=False):
     squared_norm = tf.reduce_sum(tf.square(s), axis=axis, keepdims=keepdims)
-        return tf.sqrt(squared_norm + epsilon) # Add epsilon
+    return tf.sqrt(squared_norm + epsilon) # Add epsilon
 
 # Getting y probabilities by applyng safe norm on second last data. 
     # i.e ???

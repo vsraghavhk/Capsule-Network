@@ -1,10 +1,13 @@
 import os
+import time
 import matplotlib 
 import numpy as np 
 import tensorflow as tf 
 import matplotlib.pyplot as plt 
 from tensorflow.examples.tutorials.mnist import input_data
 
+start_time = time.time()
+sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
 # Shutting up the warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 tf.logging.set_verbosity(tf.logging.ERROR)
@@ -191,7 +194,7 @@ def digitCaps():
     PCaps_output_tiled = tf.tile(PCaps_output_tile, 
         [1, 1, DCaps_capsules, 1, 1])
     return tf.matmul(W_tiled, PCaps_output_tiled), batch_size
-def training(train_optimize, total_loss, label_mask):
+def training(train_optimize, total_loss, label_mask, accuracy):
     batch_size = 50
     restore_checkpoint = True
 
@@ -207,6 +210,7 @@ def training(train_optimize, total_loss, label_mask):
             init.run()
 
         for epoch in range(n_epochs):
+            epoch_time = time.time()
             for iteration in range(1, n_iterations_per_epoch + 1):
                 x_batch, y_batch = mnist.train.next_batch(batch_size)
                 # Run the training operation and measure the loss:
@@ -228,8 +232,8 @@ def training(train_optimize, total_loss, label_mask):
             for iteration in range(1, n_iterations_validation + 1):
                 X_batch, y_batch = mnist.validation.next_batch(batch_size)
                 loss_val, acc_val = sess.run(
-                        [loss, accuracy],
-                        feed_dict={X: X_batch.reshape([-1, 28, 28, 1]),
+                        [total_loss, accuracy],
+                        feed_dict={x: x_batch.reshape([-1, 28, 28, 1]),
                                 y: y_batch})
                 loss_vals.append(loss_val)
                 acc_vals.append(acc_val)
@@ -242,12 +246,13 @@ def training(train_optimize, total_loss, label_mask):
             print("\rEpoch: {}  Val accuracy: {:.4f}%  Loss: {:.6f}{}".format(
                 epoch + 1, acc_val * 100, loss_val,
                 " (improved)" if loss_val < best_loss_val else ""))
-
             # And save the model if it improved:
             if loss_val < best_loss_val:
                 save_path = saver.save(sess, checkpoint_path)
                 best_loss_val = loss_val
-def evaluate(total_loss):
+            print("Epoch ", epoch, " took ", epoch_time-time.time(), "s" )
+
+def evaluate(total_loss, accuracy):
     batch_size = 50
     n_iterations_test = mnist.test.num_examples // batch_size
 
@@ -260,7 +265,7 @@ def evaluate(total_loss):
             x_batch, y_batch = mnist.test.next_batch(batch_size)
             loss_test, acc_test = sess.run(
                     [total_loss, accuracy],
-                    feed_dict={X: X_batch.reshape([-1, 28, 28, 1]),
+                    feed_dict={x: x_batch.reshape([-1, 28, 28, 1]),
                             y: y_batch})
             loss_tests.append(loss_test)
             acc_tests.append(acc_test)
@@ -273,7 +278,7 @@ def evaluate(total_loss):
         print("\rFinal test accuracy: {:.4f}%  Loss: {:.6f}".format(
             acc_test * 100, loss_test))
 
-def predict():
+def predict(DCaps_output, decoder_output, y_prediction):
     n_samples = 5
 
     sample_images = mnist.test.images[:n_samples].reshape([-1, 28, 28, 1])
@@ -281,8 +286,8 @@ def predict():
     with tf.Session() as sess:
         saver.restore(sess, checkpoint_path)
         caps2_output_value, decoder_output_value, y_pred_value = sess.run(
-                [caps2_output, decoder_output, y_pred],
-                feed_dict={X: sample_images,
+                [DCaps_output, decoder_output, y_prediction],
+                feed_dict={x: sample_images,
                         y: np.array([], dtype=np.int64)})
 
     sample_images = sample_images.reshape(-1, 28, 28)
@@ -328,7 +333,7 @@ if __name__ == '__main__':
     ''' Primary Capsules '''
     # Defining PrimaryCaps Layer
     PCaps = tf.layers.conv2d(conv, 
-        filters=PCaps_capsules * PCaps_dims, # 9,216
+        filters=PCaps_maps * PCaps_dims, # 9,216
         kernel_size=9,
         strides=2,
         padding="valid",
@@ -397,6 +402,15 @@ if __name__ == '__main__':
     init = tf.global_variables_initializer()
     saver = tf.train.Saver()
 
-    training(train_optimize, total_loss, label_mask)
-    evaluate(total_loss)
-    predict()
+    train_start = time.time()
+    training(train_optimize, total_loss, label_mask, accuracy)
+    print("Training took a total of :", time.time()-train_start(), "s.")
+    
+    eval_time = time.time()
+    evaluate(total_loss, accuracy)
+    print("Evaluation took a total of :", time.time()-eval_time(), "s.")
+    
+    prediction_time = time.time()
+    predict(DCaps_output, fc3, y_prediciton)
+    print("prediction took a total of :", time.time()-prediction_time(), "s.")
+    
