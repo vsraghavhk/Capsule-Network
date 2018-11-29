@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import os
 import matplotlib 
 import numpy as np 
@@ -251,7 +250,7 @@ fc3 = tf.layers.dense(fc2, output_dim,
     activation=tf.nn.sigmoid)
 
 ''' Reconstruction Loss '''
-x_flat = tf.reshape(x, [-1, recon_output])
+x_flat = tf.reshape(x, [-1, output_dim])
 # Mean of square of difference
 recon_loss = tf.reduce_mean(
     tf.square(
@@ -264,7 +263,8 @@ recon_loss = tf.reduce_mean(
 # "We scale down this reconstruction loss 
     #  so margin loss dominates during training."
     # Page 4, last paragraph
-total_loss = tf.add(margin_loss + scale_down_factor * recon_loss)
+total_loss = tf.add(margin_loss, scale_down_factor * recon_loss)
+
 
 
 
