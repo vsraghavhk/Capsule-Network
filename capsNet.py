@@ -36,12 +36,13 @@ fc2_dim = 1024
 output_dim = 784
 
 
-def squash(s, axis=-1):
+def squash(s, axis=-1, epsilon=1e-7):
     # Squash function
     # s is input vectors. s_j from formula
     # Epsilon?
     norm_squared = tf.reduce_sum(tf.square(s), axis=axis, keepdims=True)
-    result = norm_squared/(1+norm_squared) * s/norm_squared
+    safe_norm = tf.sqrt(norm_squared + epsilon)
+    result = norm_squared/(1. + norm_squared) * s/safe_norm
     return result
 
 def routing(batch_size, u_cap):
@@ -89,12 +90,12 @@ def routing(batch_size, u_cap):
     return v_2
 
 # Safe(?) Norm to compute y probabilities
-def norm(s, axis=-1, keepdims=False):
+def norm(s, epsilon=1e-7, axis=-1, keepdims=False):
     with tf.name_scope("safe_norm", default_name="safe_norm"):
         squared_norm = tf.reduce_sum(tf.square(s), 
             axis=axis, 
             keepdims=keepdims)
-        return tf.sqrt(squared_norm) # Add epsilon
+        return tf.sqrt(squared_norm + epsilon) # Add epsilon
 
 def reconstruct(y, y_prediction, DCaps_output):
     ''' Reconstruction '''

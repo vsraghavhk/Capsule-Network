@@ -5,6 +5,9 @@ import tensorflow as tf
 import matplotlib.pyplot as plt 
 from tensorflow.examples.tutorials.mnist import input_data
 
+n_epochs = 10
+checkpoint_path = "./my_capsule_network"
+
 # Shutting up the warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 tf.logging.set_verbosity(tf.logging.ERROR)
@@ -75,9 +78,10 @@ PCaps_raw = tf.reshape(PCaps, [-1, PCaps_capsules, PCaps_dims])
 # Squash function
     # s is input vectors. s_j from formula
     # Epsilon?
-def squash(s, axis=-1, name=None):
+def squash(s, axis=-1, epsilon=1e-7):
     norm_squared = tf.reduce_sum(tf.square(s), axis=axis, keepdims=True)
-    result = norm_squared/(1+norm_squared) * s/norm_squared
+    safe_norm = tf.sqrt(norm_squared + epsilon)
+    result = norm_squared/(1.+norm_squared) * s/safe_norm
     return result
 
 # Squashing output of PrimaryCaps
@@ -117,16 +121,13 @@ PCaps_output_expanded = tf.expand_dims(PCaps_output, -1)
 PCaps_output_tile = tf.expand_dims(PCaps_output_expanded, 2)
 
 # Tiled output of PCaps (same as u in Equation 2b)
-PCaps_output_tiled = tf.tile(PCaps_output_tile, 
-    [1, 1, DCaps_capsules, 1, 1])
-
-# print(W_tiled)
-# print(PCaps_output_tiled)
+PCaps_output_tiled = tf.tile(PCaps_output_tile, [1, 1, DCaps_capsules, 1, 1])
+print(W_tiled)
+print(PCaps_output_tiled)
 
 # caps2_predicted = u
 # DigitCaps predictions. u_cap from Equation 2b 
 u_cap = tf.matmul(W_tiled, PCaps_output_tiled)
-
 print("Shape of Predictions (u) :\t \t \t: ", u_cap)
 
 ''' Routing by Agreement '''
@@ -176,11 +177,9 @@ DCaps_output = v_2
 print("Shape of output of DigitCaps :\t \t \t: ", DCaps_output)
 
 # Safe(?) Norm to compute y probabilities
-def norm(s, axis=-1, keepdims=False):
-    with tf.name_scope("safe_norm", default_name="safe_norm"):
-        squared_norm = tf.reduce_sum(tf.square(s), axis=axis, 
-            keepdims=keepdims)
-        return tf.sqrt(squared_norm) # Add epsilon
+def norm(s, epsilon=1e-7, axis=-1, keepdims=False):
+    squared_norm = tf.reduce_sum(tf.square(s), axis=axis, keepdims=keepdims)
+        return tf.sqrt(squared_norm + epsilon) # Add epsilon
 
 # Getting y probabilities by applyng safe norm on second last data. 
     # i.e ???
@@ -265,11 +264,123 @@ recon_loss = tf.reduce_mean(
     # Page 4, last paragraph
 total_loss = tf.add(margin_loss, scale_down_factor * recon_loss)
 
+correct = tf.equal(y, y_prediction)
+accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
+
+optimizer = tf.train.AdamOptimizer()
+train_optimize = optimizer.minimize(total_loss)
+
+init = tf.global_variables_initializer()
+saver = tf.train.Saver()
+
+batch_size = 50
+restore_checkpoint = True
+
+n_iterations_per_epoch = mnist.train.num_examples // batch_size
+n_iterations_validation = mnist.validation.num_examples // batch_size
+best_loss_val = np.infty
 
 
+with tf.Session() as sess:
+    if restore_checkpoint and tf.train.checkpoint_exists(checkpoint_path):
+        saver.restore(sess, checkpoint_path)
+    else:
+        init.run()
 
-# todo: Loss    
-    # todo: Margin Loss
-    # todo: Reconstruction Loss
-        # Do not forget to Mask!
-# todo: Training and Evaluation
+    for epoch in range(n_epochs):
+        for iteration in range(1, n_iterations_per_epoch + 1):
+            x_batch, y_batch = mnist.train.next_batch(batch_size)
+            # Run the training operation and measure the loss:
+            _, loss_train = sess.run(
+                [train_optimize, total_loss],
+                feed_dict={x: x_batch.reshape([-1, 28, 28, 1]),
+                        y: y_batch,
+                        label_mask: True})
+            print("\rIteration: {}/{} ({:.1f}%)  Loss: {:.5f}".format(
+                    iteration, n_iterations_per_epoch,
+                    iteration * 100 / n_iterations_per_epoch,
+                    loss_train),
+                end="")
+
+        # At the end of each epoch,
+        # measure the validation loss and accuracy:
+        loss_vals = []
+        acc_vals = []
+        for iteration in range(1, n_iterations_validation + 1):
+            X_batch, y_batch = mnist.validation.next_batch(batch_size)
+            loss_val, acc_val = sess.run(
+                    [loss, accuracy],
+                    feed_dict={X: X_batch.reshape([-1, 28, 28, 1]),
+                            y: y_batch})
+            loss_vals.append(loss_val)
+            acc_vals.append(acc_val)
+            print("\rEvaluating the model: {}/{} ({:.1f}%)".format(
+                    iteration, n_iterations_validation,
+                    iteration * 100 / n_iterations_validation),
+                end=" " * 10)
+        loss_val = np.mean(loss_vals)
+        acc_val = np.mean(acc_vals)
+        print("\rEpoch: {}  Val accuracy: {:.4f}%  Loss: {:.6f}{}".format(
+            epoch + 1, acc_val * 100, loss_val,
+            " (improved)" if loss_val < best_loss_val else ""))
+
+        # And save the model if it improved:
+        if loss_val < best_loss_val:
+            save_path = saver.save(sess, checkpoint_path)
+            best_loss_val = loss_val
+batch_size = 50
+n_iterations_test = mnist.test.num_examples // batch_size
+
+with tf.Session() as sess:
+    saver.restore(sess, checkpoint_path)
+
+    loss_tests = []
+    acc_tests = []
+    for iteration in range(1, n_iterations_test + 1):
+        x_batch, y_batch = mnist.test.next_batch(batch_size)
+        loss_test, acc_test = sess.run(
+                [total_loss, accuracy],
+                feed_dict={X: X_batch.reshape([-1, 28, 28, 1]),
+                        y: y_batch})
+        loss_tests.append(loss_test)
+        acc_tests.append(acc_test)
+        print("\rEvaluating the model: {}/{} ({:.1f}%)".format(
+                iteration, n_iterations_test,
+                iteration * 100 / n_iterations_test),
+            end=" " * 10)
+    loss_test = np.mean(loss_tests)
+    acc_test = np.mean(acc_tests)
+    print("\rFinal test accuracy: {:.4f}%  Loss: {:.6f}".format(
+        acc_test * 100, loss_test))
+
+n_samples = 5
+
+sample_images = mnist.test.images[:n_samples].reshape([-1, 28, 28, 1])
+
+with tf.Session() as sess:
+    saver.restore(sess, checkpoint_path)
+    caps2_output_value, decoder_output_value, y_pred_value = sess.run(
+            [caps2_output, decoder_output, y_pred],
+            feed_dict={X: sample_images,
+                    y: np.array([], dtype=np.int64)})
+
+sample_images = sample_images.reshape(-1, 28, 28)
+reconstructions = decoder_output_value.reshape([-1, 28, 28])
+
+plt.figure(figsize=(n_samples * 2, 3))
+for index in range(n_samples):
+    plt.subplot(1, n_samples, index + 1)
+    plt.imshow(sample_images[index], cmap="binary")
+    plt.title("Label:" + str(mnist.test.labels[index]))
+    plt.axis("off")
+
+plt.show()
+
+plt.figure(figsize=(n_samples * 2, 3))
+for index in range(n_samples):
+    plt.subplot(1, n_samples, index + 1)
+    plt.title("Predicted:" + str(y_pred_value[index]))
+    plt.imshow(reconstructions[index], cmap="binary")
+    plt.axis("off")
+    
+plt.show()
