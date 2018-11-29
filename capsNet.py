@@ -25,7 +25,7 @@ PCaps_maps = 32
 # No. of capsules in total
 PCaps_capsules = PCaps_maps*6*6 # 1,152
 # No.of Dimensions to the PrimaryCaps layer
-PCaps_dims = 8
+PCaps_dims = 8  
 
 ### DigitCaps
 # 10 classes, 10 capsules # 16 Dimensions
