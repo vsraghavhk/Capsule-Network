@@ -1,0 +1,13 @@
+10,000 Batches of training
+loss = 0.14398074
+Accuracy : 0.8272727272727273
+
+Last Augmented factor : 0.011413922895607798
+Next Augmented factor : 0.009131138316486239
+
+Pre-processing;
+/*
+img = Image.fromarray(img.astype('uint8'), 'RGB')
+img = ImageEnhance.Brightness(img).enhance(random.uniform(0.5, 1.5))
+img = ImageEnhance.Contrast(img).enhance(random.uniform(0.5, 1.5))
+*/
