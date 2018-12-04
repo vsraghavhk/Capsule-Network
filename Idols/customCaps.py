@@ -4,6 +4,7 @@ import time
 import matplotlib 
 import numpy as np 
 import tensorflow as tf 
+from data_handler import get_data
 import matplotlib.pyplot as plt 
 from tensorflow.examples.tutorials.mnist import input_data
 
@@ -13,8 +14,9 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 tf.logging.set_verbosity(tf.logging.ERROR)
 
 # Getting input data from MNIST
-mnist = input_data.read_data_sets("/tmp/data/")
-print("MNIST data extracted.")
+#mnist = input_data.read_data_sets("/tmp/data/")
+x_train, y_train, x_val, y_val, x_test, y_test = get_data('dataset/')
+print("Idols data extracted.", x_test.shape)
 
 n_epochs = 250
 checkpoint_path = "./my_capsule_network"
@@ -24,19 +26,19 @@ checkpoint_path = "./my_capsule_network"
 # No.of maps in PrimaryCaps
 PCaps_maps = 32
 # No. of capsules in total
-PCaps_capsules = PCaps_maps*6*6 # 1,152
+PCaps_capsules = PCaps_maps*8*8 # How much ?
 # No.of Dimensions to the PrimaryCaps layer
 PCaps_dims = 8  
 
 ### DigitCaps
-# 10 classes, 10 capsules # 16 Dimensions
-DCaps_capsules = 10
+# 5 classes, 5 capsules # 16 Dimensions
+DCaps_capsules = 5
 DCaps_dims = 16
 
 ### Decoder
 fc1_dim = 512
 fc2_dim = 1024
-output_dim = 784
+output_dim = 32*32*3
 
 
 def squash(s, axis=-1, epsilon=1e-7):
@@ -135,10 +137,10 @@ def marginLoss(DCaps_output):
     DCaps_output_norm = norm(DCaps_output, axis=-2, keepdims=True)
     # First term of margin loss
     first_term = tf.square(tf.maximum(0., mplus - DCaps_output_norm))
-    first_term = tf.reshape(first_term, shape=(-1, 10))
+    first_term = tf.reshape(first_term, shape=(-1, 5))
     # Second term of margin loss
     second_term = tf.square(tf.maximum(0., DCaps_output_norm - mminus))
-    second_term = tf.reshape(second_term, shape=(-1, 10))
+    second_term = tf.reshape(second_term, shape=(-1, 5))
     # Final Margin Loss
     L = tf.add(Tk * first_term, ml_lambda * (1.0 - Tk) * second_term)
     
@@ -162,7 +164,7 @@ def digitCaps():
     # For predicted output vectors
         # Standard Deviation for W initialisation
     stddev = 0.1
-    # Trainable Weight with shape [1, 1152, 10, 16, 8]
+    # Trainable Weight with shape [1, ?, 5, 16, 8]
     W_initial = tf.random_normal(
         shape=(1, PCaps_capsules, DCaps_capsules, DCaps_dims, PCaps_dims),
         stddev=stddev,
@@ -176,12 +178,12 @@ def digitCaps():
     batch_size = tf.shape(x)[0]
     W_tiled = tf.tile(W, [batch_size, 1, 1, 1, 1])
 
-    # Second. array of shape [batch_size, 1152, 10, 8,1]
+    # Second. array of shape [batch_size, _, 5, 8,1]
         # containing o/p of first layer capsules
-        # repeated 10 times for 10 classes
+        # repeated 5 times for 5 classes
         # PCaps_output has shape [batch_size, 1152, 8]
-        # Expand PCaps_output twice to get shape [batch_size, 1152, 1, 8, 1]
-            # Then repeat it 10 times on third dimension
+        # Expand PCaps_output twice to get shape [batch_size, _, 1, 8, 1]
+            # Then repeat it 5 times on third dimension
 
     # Expanding
     PCaps_output_expanded = tf.expand_dims(PCaps_output, -1)
@@ -194,13 +196,25 @@ def digitCaps():
         [1, 1, DCaps_capsules, 1, 1])
     return tf.matmul(W_tiled, PCaps_output_tiled), batch_size
 
+def get_next_train_batch(batch_size, i):
+    x_batch = x_train[i-1*batch_size:i*batch_size]
+    y_batch = y_train[i-1*batch_size:i*batch_size]
+    return x_batch, y_batch
+
+def get_next_val_batch(batch_size, i):
+    x_batch = x_val[i-1*batch_size:i*batch_size]
+    y_batch = y_val[i-1*batch_size:i*batch_size]
+    return x_batch, y_batch
+
 def training(train_optimize, total_loss, label_mask, accuracy):
-    batch_size = 50
+    batch_size = 25
     restore_checkpoint = True
 
     ### ---------------------------------------------------------------------------------------
-    n_iterations_per_epoch = mnist.train.num_examples // batch_size
-    n_iterations_validation = mnist.validation.num_examples // batch_size
+    n_iterations_per_epoch = len(x_train) // batch_size
+    # mnist.train.num_examples // batch_size
+    n_iterations_validation = len(x_val) // batch_size
+    # mnist.validation.num_examples // batch_size
     
     best_loss_val = np.infty
 
@@ -214,12 +228,13 @@ def training(train_optimize, total_loss, label_mask, accuracy):
             epoch_time = time.time()
             for iteration in range(1, n_iterations_per_epoch + 1):
                 ### ---------------------------------------------------------------------------------------
-                x_batch, y_batch = mnist.train.next_batch(batch_size)
+                x_batch, y_batch = get_next_train_batch(batch_size, iteration)
+                # mnist.train.next_batch(batch_size)
 
                 # Run the training operation and measure the loss:
                 _, loss_train = sess.run(
                     [train_optimize, total_loss],
-                    feed_dict={x: x_batch.reshape([-1, 28, 28, 3]),
+                    feed_dict={x: x_batch.reshape([-1, 32, 32, 3]),
                             y: y_batch,
                             label_mask: True})  
                 print("\rIteration: {}/{} ({:.1f}%)  Loss: {:.5f}".format(
@@ -236,11 +251,12 @@ def training(train_optimize, total_loss, label_mask, accuracy):
             acc_vals = []
             for iteration in range(1, n_iterations_validation + 1):
                 ### ---------------------------------------------------------------------------------------
-                X_batch, y_batch = mnist.validation.next_batch(batch_size)
+                X_batch, y_batch = get_next_val_batch(batch_size, iteration)
+                # mnist.validation.next_batch(batch_size)
 
                 loss_val, acc_val = sess.run(
                         [total_loss, accuracy],
-                        feed_dict={x: x_batch.reshape([-1, 28, 28, 3]),
+                        feed_dict={x: x_batch.reshape([-1, 32, 32, 3]),
                                 y: y_batch})
                 loss_vals.append(loss_val)
                 acc_vals.append(acc_val)
@@ -258,10 +274,16 @@ def training(train_optimize, total_loss, label_mask, accuracy):
                 save_path = saver.save(sess, checkpoint_path)
                 best_loss_val = loss_val
             
+def get_next_test_batch(batch_size, i):
+    x_batch = x_test[i-1*batch_size:i*batch_size]
+    y_batch = y_test[i-1*batch_size:i*batch_size]
+    return x_batch, y_batch
+
 def evaluate(total_loss, accuracy):
-    batch_size = 50
+    batch_size = 20
     ### ---------------------------------------------------------------------------------------
-    n_iterations_test = mnist.test.num_examples // batch_size
+    n_iterations_test = len(x_test) // batch_size
+    # mnist.test.num_examples // batch_size
 
     with tf.Session() as sess:
         saver.restore(sess, checkpoint_path)
@@ -270,11 +292,12 @@ def evaluate(total_loss, accuracy):
         acc_tests = []
         for iteration in range(1, n_iterations_test + 1):
             ### ---------------------------------------------------------------------------------------
-            x_batch, y_batch = mnist.test.next_batch(batch_size)
+            x_batch, y_batch = get_next_test_batch(batch_size, iteration)
+            # mnist.test.next_batch(batch_size)
 
             loss_test, acc_test = sess.run(
                     [total_loss, accuracy],
-                    feed_dict={x: x_batch.reshape([-1, 28, 28, 3]),
+                    feed_dict={x: x_batch.reshape([-1, 32, 32, 3]),
                             y: y_batch})
             loss_tests.append(loss_test)
             acc_tests.append(acc_test)
@@ -289,8 +312,8 @@ def evaluate(total_loss, accuracy):
 
 def predict(DCaps_output, decoder_output, y_prediction):
     n_samples = 5
-
-    sample_images = mnist.test.images[:n_samples].reshape([-1, 28, 28, 3])
+    ###--------------------------------------------------------------------------
+    sample_images = mnist.test.images[:n_samples].reshape([-1, 32, 32, 3])
 
     with tf.Session() as sess:
         saver.restore(sess, checkpoint_path)
@@ -299,8 +322,8 @@ def predict(DCaps_output, decoder_output, y_prediction):
                 feed_dict={x: sample_images,
                         y: np.array([], dtype=np.int64)})
 
-    sample_images = sample_images.reshape(-1, 28, 28)
-    reconstructions = decoder_output_value.reshape([-1, 28, 28])
+    sample_images = sample_images.reshape(-1, 32, 32)
+    reconstructions = decoder_output_value.reshape([-1, 32, 32])
 
     plt.figure(figsize=(n_samples * 2, 3))
     for index in range(n_samples):
@@ -324,7 +347,7 @@ def predict(DCaps_output, decoder_output, y_prediction):
 if __name__ == '__main__':
 
     # 28x28 images with 1 channel
-    x = tf.placeholder(shape=[None, 28, 28, 3], dtype=tf.float32)
+    x = tf.placeholder(shape=[None, 32, 32, 3], dtype=tf.float32)
     y = tf.placeholder(shape=[None], dtype=tf.int64)
     # todo: Test model with 3 channel image dataset
     # 28x28 images with 3 channels
@@ -420,8 +443,8 @@ if __name__ == '__main__':
     evaluate(total_loss, accuracy)
     print("Evaluation took a total of :", time.time()-eval_time, "s.")
     
-    prediction_time = time.time()
-    predict(DCaps_output, fc3, y_prediciton)
-    print("prediction took a total of :", time.time()-prediction_time, "s.")
+    # prediction_time = time.time()
+    # predict(DCaps_output, fc3, y_prediciton)
+    # print("prediction took a total of :", time.time()-prediction_time, "s.")
 
     print("The total time taken is ", time.time()-start_time, "s.")    
