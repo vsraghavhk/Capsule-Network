@@ -40,7 +40,7 @@ def plot_history(history):
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.legend()
-    plt.savefig('Loss_vs_epochs_cnn_100.png')
+    plt.savefig('Loss_vs_epochs_cnn_20MNIST.png')
     ## Accuracy
     plt.figure(2)
     for l in acc_list:
@@ -52,7 +52,7 @@ def plot_history(history):
     plt.xlabel('Epochs')
     plt.ylabel('Accuracy')
     plt.legend()
-    plt.savefig('Accuracy_vs_epochs_cnn_100.png')
+    plt.savefig('Accuracy_vs_epochs_cnn_20MNIST.png')
     plt.show()
 
 batch_size = 50
